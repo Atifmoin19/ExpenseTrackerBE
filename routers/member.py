@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from core.deps import get_db, require_admin
+from core.deps import get_db, require_admin, require_member
 from models.member import TripMember
 from models.trip import Trip
 from models.user import User
@@ -33,6 +33,17 @@ def _member_response(member: TripMember, user: User) -> dict:
         uid=str(member.user_id), role=member.role, displayName=user.display_name, photoUrl=user.photo_url,
         joinedAt=member.joined_at, status=member.status,
     ).model_dump(mode="json")
+
+
+@router.get("")
+def list_members(tripId: str, trip: Trip = Depends(require_member), db: Session = Depends(get_db)):
+    rows = db.execute(
+        select(TripMember, User)
+        .join(User, User.id == TripMember.user_id)
+        .where(TripMember.trip_id == trip.id, TripMember.status == "active")
+        .order_by(TripMember.joined_at)
+    ).all()
+    return success_response([_member_response(member, user) for member, user in rows])
 
 
 @router.post("")

@@ -36,7 +36,7 @@ def _as_aware(dt: datetime) -> datetime:
 
 @trip_invites_router.post("")
 def create_invite(
-    tripId: str, body: InviteCreateRequest, user: User = Depends(get_current_user),
+    tripId: str, body: InviteCreateRequest = InviteCreateRequest(), user: User = Depends(get_current_user),
     trip: Trip = Depends(require_admin), db: Session = Depends(get_db),
 ):
     now = datetime.now(timezone.utc)
