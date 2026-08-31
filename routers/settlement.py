@@ -15,7 +15,7 @@ from schemas.settlement import SettlementCreateRequest, SettlementResponse, Sugg
 from services.balance_service import load_trip_balances
 from services.push_service import send_notification
 from services.settlement_engine import optimize
-from utils.exceptions import ValidationError
+from utils.exceptions import ForbiddenError, ValidationError
 from utils.pagination import paginate
 from utils.responses import success_response
 
@@ -47,6 +47,12 @@ def create_settlement(
     member_ids = _active_member_ids(db, trip.id)
     if body.fromUid not in member_ids or body.toUid not in member_ids:
         raise ValidationError("fromUid and toUid must both be members of this trip")
+
+    caller_membership = db.get(TripMember, (trip.id, user.id))
+    is_admin = caller_membership is not None and caller_membership.role == "admin"
+    is_party_to_it = str(user.id) in (body.fromUid, body.toUid)
+    if not is_admin and not is_party_to_it:
+        raise ForbiddenError("You can only record a settlement you're a party to, unless you're a trip admin")
 
     settlement = Settlement(
         trip_id=trip.id, from_user_id=uuid.UUID(body.fromUid), to_user_id=uuid.UUID(body.toUid),
