@@ -17,9 +17,13 @@ class Settings(BaseSettings):
     JWT_ACCESS_TTL_MINUTES: int = 60
     JWT_REFRESH_TTL_DAYS: int = 30
 
-    # Email OTP (Resend)
-    RESEND_API_KEY: str = ""
-    RESEND_FROM_EMAIL: str = "Expense Tracker <onboarding@resend.dev>"
+    # Email OTP (EmailJS — sends via a connected Gmail account, no domain
+    # verification needed; PRIVATE_KEY doubles as the server-side accessToken
+    # that lets this bypass EmailJS's normal browser-origin check)
+    EMAILJS_SERVICE_ID: str = ""
+    EMAILJS_TEMPLATE_ID: str = ""
+    EMAILJS_PUBLIC_KEY: str = ""
+    EMAILJS_PRIVATE_KEY: str = ""
 
     # Google Identity Services
     GOOGLE_CLIENT_ID: str = ""

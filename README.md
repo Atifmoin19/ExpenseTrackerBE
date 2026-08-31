@@ -14,7 +14,7 @@ against the same contract, in parallel).
 - FastAPI + Pydantic v2, Python 3.11+
 - SQLAlchemy 2.0 (sync, `psycopg2`) + Alembic — Postgres (Neon)
 - `PyJWT` (access tokens) + opaque hashed refresh tokens — no Firebase Auth
-- `resend` — OTP email delivery
+- `httpx` — OTP email delivery via EmailJS's REST API (routes through a connected Gmail account, no domain verification needed)
 - `google-auth` — verifies Google Identity Services ID tokens
 - `boto3` — presigned S3-compatible URLs against Neon Object Storage
 - `pywebpush` — Web Push notifications (VAPID)
@@ -35,7 +35,8 @@ uvicorn main:app --reload --port 8000
 `DATABASE_URL` is a real, already-provisioned Neon Postgres connection
 string — there is no local/SQLite fallback. `JWT_SECRET`, `VAPID_PUBLIC_KEY`/
 `VAPID_PRIVATE_KEY`, and the `AWS_*`/`S3_BUCKET_NAME` values are also
-expected to be real. `RESEND_API_KEY`, `GOOGLE_CLIENT_ID`, and
+expected to be real. `EMAILJS_SERVICE_ID`/`EMAILJS_TEMPLATE_ID`/
+`EMAILJS_PUBLIC_KEY`/`EMAILJS_PRIVATE_KEY`, `GOOGLE_CLIENT_ID`, and
 `GOOGLE_CLIENT_SECRET` may legitimately be blank in development — see
 "Degraded-mode behavior" below for what that changes.
 
@@ -61,18 +62,17 @@ alembic downgrade -1
 Every model in `models/*.py` is imported by `models/__init__.py`, which
 `alembic/env.py` imports so `--autogenerate` sees the full schema.
 
-## Degraded-mode behavior (blank `RESEND_API_KEY` / `GOOGLE_CLIENT_ID`)
+## Degraded-mode behavior (blank EmailJS vars / `GOOGLE_CLIENT_ID`)
 
-- **OTP email (`RESEND_API_KEY` unset):** `POST /auth/otp/request` still
+- **OTP email (EmailJS vars unset):** `POST /auth/otp/request` still
   works — the 6-digit code is logged to the server console
   (`[DEV OTP] <email> -> <code>`) and returned in the response envelope as
-  `data.debugCode`, so the full OTP flow is testable locally without a
-  Resend account. Once `RESEND_API_KEY` is set, `debugCode` is always
+  `data.debugCode`, so the full OTP flow is testable locally without an
+  EmailJS account. Once EmailJS is configured, `debugCode` is always
   `null` (never leak the code over the wire) — but in `ENV=development` the
   code is *still* logged to the server console with the same
   `[DEV OTP] <email> -> <code>` line, so testing against arbitrary emails
-  stays possible even when the configured Resend account is sandboxed (a
-  sandboxed Resend account can only deliver to its own verified address).
+  stays possible without depending on actual email delivery.
 - **Google login (`GOOGLE_CLIENT_ID` unset):** `POST /auth/google` returns a
   clean `503 service_unavailable` ("Google login is not configured on this
   server") instead of crashing.
@@ -87,15 +87,19 @@ Every model in `models/*.py` is imported by `models/__init__.py`, which
 1. **Neon Postgres** — already provisioned; `DATABASE_URL` in `.env` is
    live. To point at a different Neon project/branch, copy its pooled
    connection string from the Neon console into `DATABASE_URL`.
-2. **Resend** (`RESEND_API_KEY`, `RESEND_FROM_EMAIL`) — create an account at
-   [resend.com](https://resend.com), grab an API key from
-   [resend.com/api-keys](https://resend.com/api-keys). A brand-new account
-   is **sandboxed**: it can only deliver to the account owner's own verified
-   email address until you verify a custom sending domain (Resend
-   dashboard → Domains). Until then, `RESEND_FROM_EMAIL` can stay
-   `onboarding@resend.dev`, but `POST /auth/otp/request` will only actually
-   deliver mail to your own verified address — use the server-log
-   `[DEV OTP]` line (see above) to test against other addresses.
+2. **EmailJS** (`EMAILJS_SERVICE_ID`, `EMAILJS_TEMPLATE_ID`,
+   `EMAILJS_PUBLIC_KEY`, `EMAILJS_PRIVATE_KEY`) — create an account at
+   [emailjs.com](https://emailjs.com), connect a Gmail account (Email
+   Services page → Service ID), create a template with a `{{code}}`
+   variable and a dynamic `{{to_email}}` recipient field (Template ID),
+   and grab the Public Key (Account → General) and Private Key (Account →
+   Security). On that same Security page, enable "Allow EmailJS API for
+   non-browser applications" — without it EmailJS rejects server-to-server
+   calls since it normally only expects requests from a browser on a
+   registered domain. Unlike Resend, no domain verification is needed —
+   EmailJS routes mail through the connected Gmail account directly, so it
+   can deliver to any recipient from day one. Free tier caps at 200
+   emails/month.
 3. **Google Identity Services** (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`)
    — Google Cloud Console → APIs & Services → Credentials → **Create
    OAuth client ID** → Application type **Web application**. Add your
@@ -144,14 +148,16 @@ project — exactly the documented, non-crashing degraded state.
 1. Push this repo to GitHub/GitLab.
 2. In Render: New → Blueprint → point at the repo (picks up `render.yaml`).
 3. Set every `sync: false` env var in the Render dashboard (never committed):
-   `DATABASE_URL`, `JWT_SECRET`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`,
+   `DATABASE_URL`, `JWT_SECRET`, `EMAILJS_SERVICE_ID`, `EMAILJS_TEMPLATE_ID`,
+   `EMAILJS_PUBLIC_KEY`, `EMAILJS_PRIVATE_KEY`,
    `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `VAPID_PUBLIC_KEY`,
    `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `AWS_ENDPOINT_URL_S3`,
    `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`,
    `S3_BUCKET_NAME`.
 4. Set `ALLOWED_ORIGINS` to the deployed frontend's origin(s), comma-separated.
-5. `render.yaml`'s `preDeployCommand: alembic upgrade head` runs migrations
-   before each deploy — no manual migration step needed.
+5. Render's free tier doesn't support `preDeployCommand`, so the Dockerfile's
+   `CMD` runs `alembic upgrade head` itself before starting uvicorn on every
+   boot — idempotent against an already-migrated DB, no manual step needed.
 6. Render sets `PORT` automatically; the Dockerfile's `CMD` reads it.
 7. Health check path is `/health`.
 
@@ -159,8 +165,8 @@ project — exactly the documented, non-crashing degraded state.
 
 `test_e2e.py` covers the full v2 flow against the **live** Neon database
 configured in `.env` (no test DB, no mocks — matches CONTRACT.md's
-Postgres-backed model): OTP request/verify (works whether or not a real
-`RESEND_API_KEY` is configured — see "Degraded-mode behavior" above),
+Postgres-backed model): OTP request/verify (works whether or not EmailJS
+is configured — see "Degraded-mode behavior" above),
 `/auth/me`, trip creation, adding a second member, a two-member equal-split
 expense, dashboard summary balance correctness, the suggested-settlements
 optimizer, recording a settlement and confirming balances zero out, invite

@@ -10,15 +10,13 @@ this test creates is tagged with a unique `+e2e-<uuid>` email/name so it's
 easy to identify and prune afterwards; the `_cleanup` fixture below deletes
 everything it created at the end of the run (best-effort, via SQLAlchemy).
 
-Reading the OTP code works whether or not a real `RESEND_API_KEY` is
-configured: when it's unset, the API response itself carries a `debugCode`;
-when a real key IS configured (so `debugCode` stays null, per CONTRACT.md —
-never leak the code over the wire once real delivery is possible), this
-grabs it instead from the same dev-mode server log line
-`services/email_service.py` always emits in development
-(`DEV_OTP_LOG_PREFIX`), via pytest's `caplog`. Either way the test never
-depends on actually receiving an email (handy since a sandboxed Resend
-account can only deliver to its own verified address).
+Reading the OTP code works whether or not EmailJS is configured: when it's
+unset, the API response itself carries a `debugCode`; when it IS configured
+(so `debugCode` stays null, per CONTRACT.md — never leak the code over the
+wire once real delivery is possible), this grabs it instead from the same
+dev-mode server log line `services/email_service.py` always emits in
+development (`DEV_OTP_LOG_PREFIX`), via pytest's `caplog`. Either way the
+test never depends on actually receiving an email.
 
 Run: `.venv/bin/pytest test_e2e.py -v` (requires a real DATABASE_URL in .env
 and the schema already migrated via `alembic upgrade head`).
@@ -60,7 +58,7 @@ def _otp_login(email: str, caplog) -> dict:
 
     code = body["data"]["debugCode"]
     if not code:
-        # RESEND_API_KEY is configured — pull the code from the dev-mode log
+        # EmailJS is configured — pull the code from the dev-mode log
         # line instead (never returned over the wire in that case).
         pattern = re.escape(DEV_OTP_LOG_PREFIX) + r" " + re.escape(email) + r" -> (\d{6})"
         match = None

@@ -9,8 +9,8 @@ class OtpRequestRequest(BaseModel):
 
 class OtpRequestResponse(BaseModel):
     """Always 200 — never leaks whether the email exists. `debugCode` is only
-    populated in development when RESEND_API_KEY isn't configured, so local
-    testing works end-to-end without a real Resend account."""
+    populated in development when EmailJS isn't configured, so local
+    testing works end-to-end without a real EmailJS account."""
     sent: bool = True
     debugCode: str | None = None
 

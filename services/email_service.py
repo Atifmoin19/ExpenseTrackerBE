@@ -1,22 +1,23 @@
-"""Sends the OTP email via Resend's HTTP API.
+"""Sends the OTP email via EmailJS's REST API.
 
-When `RESEND_API_KEY` is unset (dev, no real Resend account yet), never
+EmailJS routes mail through a connected Gmail account, so no domain
+verification is needed (unlike Resend, which requires a verified domain to
+deliver to arbitrary recipients). The private key doubles as the
+`accessToken` that lets a server-side (non-browser) request through —
+EmailJS normally only accepts requests whose Origin header matches a
+registered website, and that check is bypassed for whoever holds the
+private key plus the "Allow EmailJS API for non-browser applications"
+account setting enabled.
+
+When EmailJS isn't configured (local dev, no account set up yet), never
 fail — log the OTP code clearly to stdout instead, so the auth flow is
-testable end-to-end locally without a Resend account. The caller
+testable end-to-end without sending real email. The caller
 (`routers/auth.py`) is responsible for surfacing a `debugCode` field in the
 response envelope in that same situation.
-
-Even once a real `RESEND_API_KEY` is configured, the code is still logged to
-the server's own console (never returned via the API) in development — a
-sandboxed Resend account can only deliver to its own verified address, so
-this keeps local testing against arbitrary emails possible without real
-inbox access. `DEV_OTP_LOG_PREFIX` is shared with test_e2e.py, which parses
-it out of captured logs when `RESEND_API_KEY` is set (so `debugCode` isn't
-available) instead of needing real email delivery.
 """
 import logging
 
-import resend
+import httpx
 
 from core.config import settings
 
@@ -24,13 +25,20 @@ logger = logging.getLogger("expense_tracker.email")
 
 DEV_OTP_LOG_PREFIX = "[DEV OTP]"
 
+EMAILJS_SEND_URL = "https://api.emailjs.com/api/v1.0/email/send"
+
 
 def is_configured() -> bool:
-    return bool(settings.RESEND_API_KEY)
+    return bool(
+        settings.EMAILJS_SERVICE_ID
+        and settings.EMAILJS_TEMPLATE_ID
+        and settings.EMAILJS_PUBLIC_KEY
+        and settings.EMAILJS_PRIVATE_KEY
+    )
 
 
 def send_otp_email(*, to_email: str, code: str) -> None:
-    """Best-effort send. Never raises — a transient Resend outage shouldn't
+    """Best-effort send. Never raises — a transient EmailJS outage shouldn't
     break the OTP request flow (the code is still valid/stored either way)."""
     if settings.is_development:
         logger.info("%s %s -> %s", DEV_OTP_LOG_PREFIX, to_email, code)
@@ -39,18 +47,19 @@ def send_otp_email(*, to_email: str, code: str) -> None:
         print(f"\n{DEV_OTP_LOG_PREFIX} {to_email} -> {code}\n", flush=True)
         return
 
-    resend.api_key = settings.RESEND_API_KEY
+    payload = {
+        "service_id": settings.EMAILJS_SERVICE_ID,
+        "template_id": settings.EMAILJS_TEMPLATE_ID,
+        "user_id": settings.EMAILJS_PUBLIC_KEY,
+        "accessToken": settings.EMAILJS_PRIVATE_KEY,
+        "template_params": {
+            "to_email": to_email,
+            "code": code,
+        },
+    }
     try:
-        result = resend.Emails.send({
-            "from": settings.RESEND_FROM_EMAIL,
-            "to": [to_email],
-            "subject": "Your Expense Tracker verification code",
-            "html": (
-                f"<p>Your verification code is:</p>"
-                f"<h2 style='letter-spacing:4px'>{code}</h2>"
-                f"<p>This code expires in 10 minutes. If you didn't request this, ignore this email.</p>"
-            ),
-        })
-        logger.info("Resend accepted OTP email to %s (id=%s)", to_email, getattr(result, "get", lambda *_: None)("id"))
+        response = httpx.post(EMAILJS_SEND_URL, json=payload, timeout=10.0)
+        response.raise_for_status()
+        logger.info("EmailJS accepted OTP email to %s", to_email)
     except Exception:
-        logger.exception("Failed to send OTP email to %s via Resend", to_email)
+        logger.exception("Failed to send OTP email to %s via EmailJS", to_email)
