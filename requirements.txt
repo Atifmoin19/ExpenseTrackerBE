@@ -1,0 +1,24 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic[email]==2.10.4
+pydantic-settings==2.7.1
+python-dotenv==1.0.1
+python-multipart==0.0.20
+
+# Postgres (Neon) via SQLAlchemy
+sqlalchemy==2.0.36
+psycopg2-binary==2.9.10
+alembic==1.14.0
+
+# Auth: JWT, Google ID token verification
+pyjwt==2.10.1
+google-auth==2.37.0
+
+# Email OTP delivery
+resend==2.5.1
+
+# Presigned uploads to Neon Object Storage (S3-compatible)
+boto3==1.35.90
+
+# Web Push (VAPID)
+pywebpush==2.0.3
