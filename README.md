@@ -2,7 +2,7 @@
 
 FastAPI backend for the Splitwise-style trip expense splitter. **v2**:
 Postgres (Neon-hosted) via SQLAlchemy, backend-owned JWT auth (email OTP via
-Resend + Google Identity Services token verification), Web Push/VAPID, and
+EmailJS + Google Identity Services token verification), Web Push/VAPID, and
 presigned-URL uploads to Neon Object Storage. Firebase/Firestore/FCM have
 been fully removed — see `/Users/atifmoin/ExpenseTracker/CONTRACT.md` (v2),
 which this backend is built against exactly; do not diverge field names or
@@ -123,6 +123,28 @@ Every model in `models/*.py` is imported by `models/__init__.py`, which
    `S3_BUCKET_NAME`'s value in the Neon console (Object Storage → Create
    bucket) before uploads work — see below.
 
+## Platform admin (whole-app "super admin")
+
+`users.is_platform_admin` gates the read-only analytics API mounted at
+`/api/v1/admin/*` (`routers/admin.py`, dependency `core.deps.require_platform_admin`)
+and the frontend's `/admin` route. This is a **whole-app** role, completely
+separate from `trip_members.role = 'admin'` (which only means "admin of one
+specific trip") — do not conflate the two.
+
+There is deliberately no self-serve way to become a platform admin. To grant
+(or revoke) it for a user who has already signed up at least once:
+
+```bash
+cd Backend
+source .venv/bin/activate
+python scripts/grant_platform_admin.py someone@example.com
+python scripts/grant_platform_admin.py someone@example.com --revoke   # to undo
+```
+
+This connects directly to `DATABASE_URL` (same as the running app) and flips
+the flag for that email; it errors out if no `users` row exists for that
+email yet (they need to sign up via OTP or Google login first).
+
 ## Object Storage bucket
 
 Presigning (`POST /uploads/presign`) works immediately once
@@ -181,7 +203,7 @@ pytest test_e2e.py -v
 
 This was run against the real Neon DB during development (all 4 tests
 passed, ~65s — most of that is real network round-trips to Postgres and, for
-one login, to Resend) and its own cleanup fixture removed everything it
+one login, to EmailJS) and its own cleanup fixture removed everything it
 created. A manual `curl`-driven pass (documented in the PR/task notes) was
 also run and cleaned up separately, confirming: OTP → JWT round trip,
 `/auth/me`, trip creation with creator as sole admin+member, adding a second
@@ -280,8 +302,9 @@ models/     SQLAlchemy ORM models — one module per table (mirrors CONTRACT.md 
 alembic/    migration environment + versions/ (first migration creates every table+index)
 schemas/    request/response Pydantic models per API area
 routers/    one router module per API area, mounted under /api/v1
-services/   email OTP (Resend), Google ID token verify, S3 presign, Web Push, settlement optimizer, balance calc
+services/   email OTP (EmailJS), Google ID token verify, S3 presign, Web Push, settlement optimizer, balance calc
 utils/      response envelope, exceptions, pagination, rate limiting
+scripts/    one-off maintenance scripts run manually against the live DB (e.g. grant_platform_admin.py)
 main.py     app wiring: CORS, exception handlers, routers, /health
 test_e2e.py end-to-end pytest against the real Neon DB
 ```

@@ -13,7 +13,7 @@ from models.trip import Trip
 from models.user import User
 from utils.exceptions import ForbiddenError, NotFoundError, UnauthorizedError
 
-__all__ = ["get_db", "get_current_user", "require_admin", "require_member"]
+__all__ = ["get_db", "get_current_user", "require_admin", "require_member", "require_platform_admin"]
 
 
 def get_current_user(
@@ -43,6 +43,17 @@ def get_current_user(
     user = db.get(User, user_id)
     if user is None:
         raise UnauthorizedError("User no longer exists")
+    return user
+
+
+def require_platform_admin(user: User = Depends(get_current_user)) -> User:
+    """Dependency: 403s unless the caller's `users.is_platform_admin` flag is
+    set. This is a whole-app "super admin" role, completely separate from
+    per-trip `trip_members.role == 'admin'` — deliberately does NOT reuse
+    `require_admin`/any trip-scoped membership lookup. Used to gate every
+    endpoint under routers/admin.py."""
+    if not user.is_platform_admin:
+        raise ForbiddenError("Platform admin access required")
     return user
 
 

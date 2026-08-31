@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from core.config import settings
-from routers import auth, dashboard, expense, invite, member, notification, settlement, trip, uploads
+from routers import admin, auth, dashboard, expense, invite, member, notification, settlement, trip, uploads
 from utils.exceptions import AppError
 from utils.rate_limit import RateLimitMiddleware
 from utils.responses import error_envelope
@@ -70,6 +70,7 @@ app.include_router(dashboard.timeline_router, prefix=API_PREFIX)
 app.include_router(settlement.router, prefix=API_PREFIX)
 app.include_router(notification.router, prefix=API_PREFIX)
 app.include_router(uploads.router, prefix=API_PREFIX)
+app.include_router(admin.router, prefix=API_PREFIX)
 
 
 @app.get("/health", tags=["health"])

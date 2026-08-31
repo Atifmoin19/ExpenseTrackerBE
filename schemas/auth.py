@@ -37,6 +37,10 @@ class UserResponse(BaseModel):
     email: str
     displayName: str | None = None
     photoUrl: str | None = None
+    # Whole-app "super admin" flag, separate from any per-trip role — lets the
+    # frontend conditionally show the Platform Admin link. See
+    # core/deps.py:require_platform_admin.
+    isPlatformAdmin: bool = False
     createdAt: datetime
     updatedAt: datetime
 
