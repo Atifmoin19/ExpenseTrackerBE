@@ -3,7 +3,7 @@ min-transaction "suggested settlements" optimizer output."""
 import uuid
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from core.deps import get_current_user, get_db, require_member
@@ -72,10 +72,17 @@ def create_settlement(
 
 @router.get("")
 def list_settlements(
-    tripId: str, trip: Trip = Depends(require_member), db: Session = Depends(get_db),
-    limit: int = Query(20, ge=1, le=100), cursor: str | None = Query(default=None),
+    tripId: str, user: User = Depends(get_current_user), trip: Trip = Depends(require_member),
+    db: Session = Depends(get_db), limit: int = Query(20, ge=1, le=100), cursor: str | None = Query(default=None),
 ):
+    caller_membership = db.get(TripMember, (trip.id, user.id))
+    is_admin = caller_membership is not None and caller_membership.role == "admin"
+
     stmt = select(Settlement).where(Settlement.trip_id == trip.id)
+    if not is_admin:
+        # Privacy scoping per CONTRACT.md: a non-admin only sees settlement
+        # rows they're a party to (fromUid or toUid). Admins see every row.
+        stmt = stmt.where(or_(Settlement.from_user_id == user.id, Settlement.to_user_id == user.id))
     items, has_more, next_cursor = paginate(db, stmt, Settlement.created_at, limit=limit, cursor=cursor)
     return success_response(
         [_settlement_response(s, trip.id) for s in items], meta={"cursor": next_cursor, "hasMore": has_more}
@@ -83,10 +90,22 @@ def list_settlements(
 
 
 @router.get("/suggested")
-def suggested_settlements(tripId: str, trip: Trip = Depends(require_member), db: Session = Depends(get_db)):
+def suggested_settlements(
+    tripId: str, user: User = Depends(get_current_user), trip: Trip = Depends(require_member),
+    db: Session = Depends(get_db),
+):
+    caller_membership = db.get(TripMember, (trip.id, user.id))
+    is_admin = caller_membership is not None and caller_membership.role == "admin"
+
     member_ids = [m.user_id for m in db.scalars(
         select(TripMember).where(TripMember.trip_id == trip.id, TripMember.status == "active")
     ).all()]
+    # The optimizer always runs over the FULL trip's balances — correct
+    # minimum-transaction amounts depend on everyone's data. Only the
+    # *returned list* is filtered to the caller's own rows for non-admins.
     balances = load_trip_balances(db, trip.id, member_ids)
     suggestions = optimize(balances)
+    if not is_admin:
+        caller_id = str(user.id)
+        suggestions = [s for s in suggestions if s["fromUid"] == caller_id or s["toUid"] == caller_id]
     return success_response([SuggestedSettlement(**s).model_dump(mode="json") for s in suggestions])
