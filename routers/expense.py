@@ -3,8 +3,9 @@ filters), get, update/delete (creator-or-admin only)."""
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, Query
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.deps import get_current_user, get_db, require_member
@@ -83,13 +84,28 @@ def _ensure_creator_or_admin(db: Session, expense: Expense, trip: Trip, user_id)
         raise ForbiddenError("Only the expense creator or a trip admin can modify this expense")
 
 
+def _find_by_client_id(db: Session, trip_id, client_id: str) -> Expense | None:
+    return db.scalars(
+        select(Expense).where(Expense.trip_id == trip_id, Expense.client_id == client_id)
+    ).first()
+
+
 @router.post("")
 def create_expense(
     tripId: str, body: ExpenseCreateRequest, user: User = Depends(get_current_user),
     trip: Trip = Depends(require_member), db: Session = Depends(get_db),
+    client_id: str | None = Header(default=None, alias="X-Offline-Local-Id", max_length=64),
 ):
     if not _can_create_expense(db, trip, user.id):
         raise ForbiddenError("You do not have permission to add expenses to this trip")
+
+    # Idempotent create: the client sends the same id on every attempt
+    # (first try, service-worker Background Sync replay, foreground replay),
+    # so a retry returns the expense that already exists instead of a duplicate.
+    if client_id:
+        existing = _find_by_client_id(db, trip.id, client_id)
+        if existing is not None:
+            return success_response(_expense_response(db, existing, trip.id))
 
     member_ids = _active_member_ids(db, trip.id)
     if body.paidBy not in member_ids:
@@ -104,9 +120,18 @@ def create_expense(
         trip_id=trip.id, description=body.description, amount=body.amount, currency=body.currency,
         category=body.category, notes=body.notes, tags=body.tags, receipt_url=body.receiptUrl,
         paid_by=uuid.UUID(body.paidBy), split_type=body.splitType, date=body.date, created_by=user.id,
+        client_id=client_id or None,
     )
     db.add(expense)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        # Two replays raced past the lookup above; the other one won.
+        db.rollback()
+        existing = _find_by_client_id(db, trip.id, client_id) if client_id else None
+        if existing is None:
+            raise
+        return success_response(_expense_response(db, existing, trip.id))
 
     for split in resolved_splits:
         db.add(ExpenseSplit(

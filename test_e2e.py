@@ -209,3 +209,46 @@ def test_auth_errors():
 def test_google_auth_unconfigured_returns_503():
     r = client.post(f"{API}/auth/google", json={"idToken": "fake"})
     assert r.status_code == 503
+
+
+def test_create_expense_is_idempotent_per_client_id(caplog):
+    """Offline replays (service-worker Background Sync + the foreground
+    'online' replay) can POST the same expense more than once. Every attempt
+    carries the same X-Offline-Local-Id, so the server must create exactly one
+    row and hand back that same expense on every retry."""
+    auth = _otp_login(f"pytest-e2e-{RUN_ID}-idem@example.com", caplog)
+    h = _auth_headers(auth["accessToken"])
+    uid = auth["user"]["id"]
+
+    r = client.post(f"{API}/trips", json={
+        "name": "Pytest Idempotency Trip", "startDate": "2026-09-01", "endDate": "2026-09-05", "currency": "INR",
+    }, headers=h)
+    assert r.status_code == 200
+    trip_id = r.json()["data"]["id"]
+    _created_trip_ids.append(trip_id)
+
+    payload = {
+        "description": "Taxi", "amount": 250, "currency": "INR", "category": "transport",
+        "paidBy": uid, "splitType": "equal", "splits": [{"uid": uid}], "date": "2026-09-02",
+    }
+    client_id = str(uuid.uuid4())
+    headers = {**h, "X-Offline-Local-Id": client_id}
+
+    r1 = client.post(f"{API}/trips/{trip_id}/expenses", json=payload, headers=headers)
+    r2 = client.post(f"{API}/trips/{trip_id}/expenses", json=payload, headers=headers)
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert r1.json()["data"]["id"] == r2.json()["data"]["id"]
+
+    db = SessionLocal()
+    try:
+        rows = db.query(Expense).filter(Expense.trip_id == uuid.UUID(trip_id)).all()
+    finally:
+        db.close()
+    assert len(rows) == 1
+
+    # A different client id is a genuinely new expense.
+    r3 = client.post(
+        f"{API}/trips/{trip_id}/expenses", json=payload, headers={**h, "X-Offline-Local-Id": str(uuid.uuid4())},
+    )
+    assert r3.status_code == 200
+    assert r3.json()["data"]["id"] != r1.json()["data"]["id"]
