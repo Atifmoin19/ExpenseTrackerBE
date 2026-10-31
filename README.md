@@ -20,10 +20,9 @@ against the same contract, in parallel).
 - `pywebpush` — Web Push notifications (VAPID)
 - Deployed to Render.com (Docker)
 
-## Running locally against the real Neon DB
+## Running locally
 
 ```bash
-cd Backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -32,8 +31,20 @@ alembic upgrade head   # creates every table in CONTRACT.md's Postgres schema
 uvicorn main:app --reload --port 8000
 ```
 
-`DATABASE_URL` is a real, already-provisioned Neon Postgres connection
-string — there is no local/SQLite fallback. `JWT_SECRET`, `VAPID_PUBLIC_KEY`/
+`DATABASE_URL` can be the Neon connection string or any local Postgres 14+
+(SQLite will not work: the models use Postgres `UUID`, `JSONB` and `ARRAY`
+columns). A throwaway local database is enough to run the app and the test
+suite:
+
+```bash
+createdb expense_tracker_dev
+# .env
+DATABASE_URL=postgresql://<user>@localhost:5432/expense_tracker_dev
+JWT_SECRET=<any long random string, e.g. python -c "import secrets;print(secrets.token_urlsafe(48))">
+```
+
+With only those two values set, OTP login works through the `debugCode`
+dev path described below. In production, `JWT_SECRET`, `VAPID_PUBLIC_KEY`/
 `VAPID_PRIVATE_KEY`, and the `AWS_*`/`S3_BUCKET_NAME` values are also
 expected to be real. `EMAILJS_SERVICE_ID`/`EMAILJS_TEMPLATE_ID`/
 `EMAILJS_PUBLIC_KEY`/`EMAILJS_PRIVATE_KEY`, `GOOGLE_CLIENT_ID`, and
@@ -135,7 +146,6 @@ There is deliberately no self-serve way to become a platform admin. To grant
 (or revoke) it for a user who has already signed up at least once:
 
 ```bash
-cd Backend
 source .venv/bin/activate
 python scripts/grant_platform_admin.py someone@example.com
 python scripts/grant_platform_admin.py someone@example.com --revoke   # to undo
