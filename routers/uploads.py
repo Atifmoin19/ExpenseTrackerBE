@@ -6,6 +6,7 @@ from core.deps import get_current_user
 from models.user import User
 from schemas.upload import PresignUploadRequest, PresignUploadResponse, ViewUrlResponse
 from services import storage_service
+from utils.exceptions import ForbiddenError
 from utils.responses import success_response
 
 router = APIRouter(prefix="/uploads", tags=["uploads"])
@@ -13,6 +14,8 @@ router = APIRouter(prefix="/uploads", tags=["uploads"])
 
 @router.post("/presign")
 def presign_upload(body: PresignUploadRequest, user: User = Depends(get_current_user)):
+    if user.is_demo:
+        raise ForbiddenError("Uploads are disabled in the demo sandbox")
     result = storage_service.presign_upload(
         kind=body.kind, user_id=str(user.id), filename=body.filename, content_type=body.contentType,
     )

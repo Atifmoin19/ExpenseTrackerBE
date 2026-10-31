@@ -3,7 +3,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, Index, Integer, Numeric, String, Text, func
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,6 +18,8 @@ class Expense(Base):
         # CONTRACT.md indexes: expenses(trip_id, date desc), expenses(trip_id, category)
         Index("ix_expenses_trip_id_date", "trip_id", "date"),
         Index("ix_expenses_trip_id_category", "trip_id", "category"),
+        # Idempotency key for offline replays: one expense per client id per trip.
+        UniqueConstraint("trip_id", "client_id", name="uq_expenses_trip_id_client_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -33,6 +35,9 @@ class Expense(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags: Mapped[list[str]] = mapped_column(postgresql.ARRAY(String), nullable=False, default=list)
     receipt_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Client-generated id (X-Offline-Local-Id) — lets retried POSTs return the
+    # already-created expense instead of inserting a duplicate.
+    client_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     paid_by: Mapped[uuid.UUID] = mapped_column(
         postgresql.UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
     )

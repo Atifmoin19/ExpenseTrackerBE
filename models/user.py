@@ -25,6 +25,10 @@ class User(Base):
     # scripts/grant_platform_admin.py. See core/deps.py:require_platform_admin
     # and routers/admin.py.
     is_platform_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
+    # Throwaway "Try the demo" accounts (see services/demo_service.py). Purged
+    # with all their data once demo_expires_at passes; never platform admins.
+    is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
+    demo_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

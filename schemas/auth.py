@@ -41,6 +41,9 @@ class UserResponse(BaseModel):
     # frontend conditionally show the Platform Admin link. See
     # core/deps.py:require_platform_admin.
     isPlatformAdmin: bool = False
+    # "Try the demo" sandbox account; demoExpiresAt is when it gets purged.
+    isDemo: bool = False
+    demoExpiresAt: datetime | None = None
     createdAt: datetime
     updatedAt: datetime
 

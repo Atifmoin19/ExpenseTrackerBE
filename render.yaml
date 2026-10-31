@@ -43,6 +43,6 @@ services:
       - key: S3_BUCKET_NAME
         sync: false
       - key: ALLOWED_ORIGINS
-        value: http://localhost:5173
+        value: https://expense-tracker-fe-xi.vercel.app
       - key: ENV
         value: production
