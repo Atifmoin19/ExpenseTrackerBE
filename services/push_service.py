@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from core.config import settings
 from models.notification import Notification
 from models.push_subscription import PushSubscription
+from models.user import User
 
 logger = logging.getLogger("expense_tracker.push")
 
@@ -50,6 +51,11 @@ def send_notification(
         return
 
     if not is_configured():
+        return
+
+    # Demo sandbox accounts keep the in-app notification row but never get pushes.
+    recipient = db.get(User, user_id)
+    if recipient is None or recipient.is_demo:
         return
 
     subscriptions = db.query(PushSubscription).filter(PushSubscription.user_id == user_id).all()

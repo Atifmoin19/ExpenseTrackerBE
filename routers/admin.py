@@ -31,6 +31,11 @@ from utils.responses import success_response
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_platform_admin)])
 
+# "Try the demo" sandbox accounts and everything they create are excluded
+# from all platform analytics.
+_DEMO_USER_IDS = select(User.id).where(User.is_demo.is_(True)).scalar_subquery()
+_NOT_DEMO_TRIP = Trip.created_by.not_in(_DEMO_USER_IDS)
+
 
 def _active_user_count(db: Session, since: datetime) -> int:
     """Approximate "active users" — counts distinct users who had a
@@ -44,21 +49,23 @@ def _active_user_count(db: Session, since: datetime) -> int:
     FK'd to `users` and is pruned/replayed differently, so refresh_tokens is
     the cleaner signal."""
     return db.scalar(
-        select(func.count(func.distinct(RefreshToken.user_id))).where(RefreshToken.created_at >= since)
+        select(func.count(func.distinct(RefreshToken.user_id)))
+        .where(RefreshToken.created_at >= since, RefreshToken.user_id.not_in(_DEMO_USER_IDS))
     ) or 0
 
 
 @router.get("/stats/summary")
 def admin_stats_summary(db: Session = Depends(get_db)):
-    total_users = db.scalar(select(func.count()).select_from(User)) or 0
+    total_users = db.scalar(select(func.count()).select_from(User).where(User.is_demo.is_(False))) or 0
 
-    active_trips = db.scalar(select(func.count()).select_from(Trip).where(Trip.status == "active")) or 0
-    archived_trips = db.scalar(select(func.count()).select_from(Trip).where(Trip.status == "archived")) or 0
+    active_trips = db.scalar(select(func.count()).select_from(Trip).where(Trip.status == "active", _NOT_DEMO_TRIP)) or 0
+    archived_trips = db.scalar(select(func.count()).select_from(Trip).where(Trip.status == "archived", _NOT_DEMO_TRIP)) or 0
 
-    total_expenses = db.scalar(select(func.count()).select_from(Expense)) or 0
+    total_expenses = db.scalar(select(func.count()).select_from(Expense).where(Expense.created_by.not_in(_DEMO_USER_IDS))) or 0
 
     volume_rows = db.execute(
         select(Expense.currency, func.coalesce(func.sum(Expense.amount), 0))
+        .where(Expense.created_by.not_in(_DEMO_USER_IDS))
         .group_by(Expense.currency)
         .order_by(Expense.currency)
     ).all()
@@ -94,7 +101,7 @@ def admin_stats_signups(
 
     rows = db.execute(
         select(period, func.count().label("count"))
-        .where(User.created_at >= since)
+        .where(User.created_at >= since, User.is_demo.is_(False))
         .group_by(period)
         .order_by(period)
     ).all()
@@ -139,6 +146,7 @@ def admin_trips(
         )
         .outerjoin(member_counts, member_counts.c.trip_id == Trip.id)
         .outerjoin(expense_agg, expense_agg.c.trip_id == Trip.id)
+        .where(_NOT_DEMO_TRIP)
     )
 
     cursor_value = decode_cursor(cursor)

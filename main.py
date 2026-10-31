@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from core.config import settings
-from routers import admin, auth, dashboard, expense, invite, member, notification, settlement, trip, uploads
+from routers import admin, auth, dashboard, demo, expense, invite, member, notification, settlement, trip, uploads
 from utils.exceptions import AppError
 from utils.rate_limit import RateLimitMiddleware
 from utils.responses import error_envelope
@@ -60,6 +60,7 @@ async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONRespons
 # ── Routers, all mounted under /api/v1 per CONTRACT.md ────────────────────────
 API_PREFIX = "/api/v1"
 app.include_router(auth.router, prefix=API_PREFIX)
+app.include_router(demo.router, prefix=API_PREFIX)
 app.include_router(trip.router, prefix=API_PREFIX)
 app.include_router(member.router, prefix=API_PREFIX)
 app.include_router(invite.trip_invites_router, prefix=API_PREFIX)

@@ -52,7 +52,7 @@ def require_platform_admin(user: User = Depends(get_current_user)) -> User:
     per-trip `trip_members.role == 'admin'` — deliberately does NOT reuse
     `require_admin`/any trip-scoped membership lookup. Used to gate every
     endpoint under routers/admin.py."""
-    if not user.is_platform_admin:
+    if not user.is_platform_admin or user.is_demo:
         raise ForbiddenError("Platform admin access required")
     return user
 

@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     AWS_REGION: str = ""
     S3_BUCKET_NAME: str = ""
 
+    # "Try the demo" sandbox (POST /auth/demo). Off unless explicitly enabled.
+    DEMO_MODE_ENABLED: bool = False
+    DEMO_TTL_HOURS: int = 24
+    DEMO_RATE_LIMIT_PER_HOUR: int = 5  # per client IP
+    DEMO_MAX_SESSIONS: int = 200  # live demo sandboxes at once
+
     ALLOWED_ORIGINS: str = "http://localhost:5173"
     ENV: str = "development"
 

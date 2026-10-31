@@ -47,7 +47,7 @@ OTP_MAX_ATTEMPTS = 5
 def _user_response(user: User) -> dict:
     return UserResponse(
         id=str(user.id), email=user.email, displayName=user.display_name, photoUrl=user.photo_url,
-        isPlatformAdmin=user.is_platform_admin,
+        isPlatformAdmin=user.is_platform_admin, isDemo=user.is_demo, demoExpiresAt=user.demo_expires_at,
         createdAt=user.created_at, updatedAt=user.updated_at,
     ).model_dump(mode="json")
 
